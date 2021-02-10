@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta title="dEMS api">
+
+    <!-- Bootstrap 4.5.3 CSS -->
+    <link rel="stylesheet" href="/assets/stylesheets/bootstrap.css">
+    <!-- Main CSS -->
+    <link rel="stylesheet" href="/assets/stylesheets/main.css">
+    <style>
+      #page-header,
+      #page-body {
+        position: relative;
+        width: 100%;
+      }
+      #page-header {
+        margin-bottom: 2rem;
+      }
+
+      .ibox {
+        border: 1px solid rgba(125, 146, 139, 0.12);
+        border-radius: 6px;
+      }
+      .ibox > .ibox-header {
+        padding: 0.9375rem 1.125rem;
+      }
+      .ibox > .ibox-body {
+        padding: 0.9375rem 1.125rem;
+        padding-top: 0;
+      }
+      .ibox-title {
+        margin: 0;
+      }
+
+      .api-item {
+        border: 1px solid rgba(193, 205, 197, 1);
+        border-radius: 6px;
+        display: flex;
+        flex-wrap: wrap;
+        margin-bottom: 0.75rem;
+        padding: 0.375rem 0;
+      }
+      .api-item .api-link {
+        color: #7D928B;
+        font-weight: 700;
+      }
+      .api-item .form-access-state {
+        display: flex;
+        user-select: none;
+      }
+      .form-access-state > .item-state {
+        border-left: 1px solid rgba(193, 205, 197, 0.45);
+        flex: 0 0 33.333333%;
+        font-weight: 600;
+        max-width: 33.333333%;
+        text-align: center;
+      }
+      .item-state .zero-value {
+        color: #989899;
+      }
+      .item-state .state-success {
+        color: #5F6FFA;
+      }
+      .item-state .state-failed {
+        color: #CE5DDE;
+      }
+      @media (min-width: 576px) {
+        .api-item > .col-sm-12:first-child {
+          padding-bottom: 0.35rem;
+        }
+        .api-item > .col-sm-12:last-child {
+          border-top: 1px solid rgba(193, 205, 197, 0.45);
+          padding-top: 0.35rem;
+        }
+      }
+      @media (min-width: 992px) {
+        .api-item > .col-sm-12:first-child {
+          padding-bottom: 0
+        }
+        .api-item > .col-sm-12:last-child {
+          border-top: none;
+          padding-top: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <section>
+      <article id="page-header" class="shadow-sm">
+        <nav class="container navbar navbar-light">
+          <a class="navbar-brand" href="">dEMS API Server</a>
+        </nav>
+      </article>
+      <article id="page-body">
+        <div class="container">
+          <div class="ibox shadow-sm">
+            <div class="ibox-header d-flex">
+              <div class="col-6">
+                <h5 class="ibox-title">API List</h5>
+              </div>
+              <div class="col-6">
+                <div class="row">
+                  <div class="col-4 text-center">Attempt</div>
+                  <div class="col-4 text-center">Success</div>
+                  <div class="col-4 text-center">Failed</div>
+                </div>
+              </div>
+            </div>
+            <div class="ibox-body">
+
+              <div id="api-list">
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- JQuery 3.5.1 JS -->
+    <script src="/assets/javascripts/jquery.min.js"></script>
+    <!-- Bootstrap 4.5.3 JS -->
+    <script src="/assets/javascripts/bootstrap.min.js"></script>
+    <script>
+      // Get list
+      $.ajax({
+        type: "GET",
+        url: "/request/list",
+        success: function(res) {
+          if (res.result) {
+            console.log(res.message)
+            html = ""
+            for (key of Object.keys(res.message)) {
+              elem = res.message[key];
+              html += `
+              <div class="api-item">
+                <div class="col-sm-12 col-lg-6">
+                  <a class="api-link" data-id="${key}">/request/${key}</a>
+                </div>
+                <div class="col-sm-12 col-lg-6">
+                  <div class="row form-access-state">
+                    <div class="item-state">
+                      <span class="state-attempt">${elem.attempt > 0 ? elem.attempt : '<span class="zero-value">' + elem.attempt + '</span>'}</span>
+                    </div>
+                    <div class="item-state">
+                      <span class="state-success">${elem.success > 0 ? elem.success : '<span class="zero-value">' + elem.success + '</span>'}</span>
+                    </div>
+                    <div class="item-state">
+                      <span class="state-failed">${elem.failed > 0 ? elem.failed : '<span class="zero-value">' + elem.failed + '</span>'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>`;
+            }
+            
+            document.getElementById('api-list').innerHTML = html;
+          } else {
+            alert(res.message)
+          }
+        }
+      });
+
+      
+    </script>
+  </body>
+</html>
