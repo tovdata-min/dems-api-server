@@ -23,6 +23,7 @@ func Router() *echo.Echo {
 	{
 		requestRouter.GET("/list", requestHandler.RequestList)
 		requestRouter.GET("/:requestID", requestHandler.ExportRequest)
+		requestRouter.GET("/info", requestHandler.RequestInfo)
 	}
 
 	return e

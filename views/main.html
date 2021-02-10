@@ -40,11 +40,17 @@
         margin-bottom: 0.75rem;
         padding: 0.375rem 0;
       }
-      .api-item .api-link {
-        color: #7D928B;
-        font-weight: 700;
+      .api-access-state {
+        display: flex;
+        width: 100%;
       }
-      .api-item .form-access-state {
+      .api-access-state .api-link {
+        color: #7D928B;
+        cursor: pointer;
+        font-weight: 700;
+        padding-left: 0.375rem;
+      }
+      .api-access-state .form-access-state {
         display: flex;
         user-select: none;
       }
@@ -64,20 +70,35 @@
       .item-state .state-failed {
         color: #CE5DDE;
       }
+      .api-info {
+        display: block;
+        margin-top: 0.45rem;
+        width: 100%;
+      }
+      .conn-info-group .info-subject {
+        display: block;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+      .conn-info-group .info-content {
+        display: block;
+        font-size: 14px;
+        margin-bottom: 0;
+      }
       @media (min-width: 576px) {
-        .api-item > .col-sm-12:first-child {
+        .api-access-state > .col-sm-12:first-child {
           padding-bottom: 0.35rem;
         }
-        .api-item > .col-sm-12:last-child {
+        .api-access-state > .col-sm-12:last-child {
           border-top: 1px solid rgba(193, 205, 197, 0.45);
           padding-top: 0.35rem;
         }
       }
       @media (min-width: 992px) {
-        .api-item > .col-sm-12:first-child {
+        .api-access-state > .col-sm-12:first-child {
           padding-bottom: 0
         }
-        .api-item > .col-sm-12:last-child {
+        .api-access-state> .col-sm-12:last-child {
           border-top: none;
           padding-top: 0;
         }
@@ -132,20 +153,38 @@
             for (key of Object.keys(res.message)) {
               elem = res.message[key];
               html += `
-              <div class="api-item">
-                <div class="col-sm-12 col-lg-6">
-                  <a class="api-link" data-id="${key}">/request/${key}</a>
+              <div class="api-item" data-id="${key}">
+                <div class="api-access-state">
+                  <div class="col-sm-12 col-lg-6">
+                    <a class="api-link" data-id="${key}">/request/${key}</a>
+                  </div>
+                  <div class="col-sm-12 col-lg-6">
+                    <div class="row form-access-state">
+                      <div class="item-state">
+                        <span class="state-attempt">${elem.attempt > 0 ? elem.attempt : '<span class="zero-value">' + elem.attempt + '</span>'}</span>
+                      </div>
+                      <div class="item-state">
+                        <span class="state-success">${elem.success > 0 ? elem.success : '<span class="zero-value">' + elem.success + '</span>'}</span>
+                      </div>
+                      <div class="item-state">
+                        <span class="state-failed">${elem.failed > 0 ? elem.failed : '<span class="zero-value">' + elem.failed + '</span>'}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="col-sm-12 col-lg-6">
-                  <div class="row form-access-state">
-                    <div class="item-state">
-                      <span class="state-attempt">${elem.attempt > 0 ? elem.attempt : '<span class="zero-value">' + elem.attempt + '</span>'}</span>
+                <div class="api-info" style="display:none;">
+                  <div class="conn-info row">
+                    <div class="conn-info-group col-sm-6 col-lg-4" data-id="host">
+                      <small class="info-subject"></small>
+                      <p class="info-content"></p>
                     </div>
-                    <div class="item-state">
-                      <span class="state-success">${elem.success > 0 ? elem.success : '<span class="zero-value">' + elem.success + '</span>'}</span>
+                    <div class="conn-info-group col-sm-6 col-lg-4" data-id="database">
+                      <small class="info-subject"></small>
+                      <p class="info-content"></p>
                     </div>
-                    <div class="item-state">
-                      <span class="state-failed">${elem.failed > 0 ? elem.failed : '<span class="zero-value">' + elem.failed + '</span>'}</span>
+                    <div class="conn-info-group col-sm-6 col-lg-4" data-id="table">
+                      <small class="info-subject"></small>
+                      <p class="info-content"></p>
                     </div>
                   </div>
                 </div>
@@ -154,12 +193,32 @@
             
             document.getElementById('api-list').innerHTML = html;
           } else {
-            alert(res.message)
+            alert(res.message[0])
           }
         }
       });
 
-      
+      //
+      $(document).on('click', '.api-link', function() {
+        id = $(this).data('id');
+        $.ajax({
+          type: "GET",
+          url: "/request/info",
+          data: `id=${id}`,
+          success: function(res) {
+            if (res.result) {
+              console.log(res.message);
+
+              $formInfo = $(`.api-item[data-id="${id}"] .api-info`)
+              
+
+              $formInfo.slideDown();
+            } else {
+              alert(res.message[0]);
+            }
+          }
+        });
+      });
     </script>
   </body>
 </html>

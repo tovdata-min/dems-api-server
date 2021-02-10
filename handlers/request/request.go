@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -32,6 +33,10 @@ type ResponseMessage struct {
 type ResponseList struct {
 	Result bool `json:"result" xml:"result"`
 	Message map[string](map[string]int) `json:"message" xml:"message"`
+}
+type ResponseInfo struct {
+	Result bool `json:"result" xml:"result"`
+	Message map[string]interface{} `json:"message" xml:"message"`
 }
 // Database interface
 type ConnectionDB struct {
@@ -199,6 +204,45 @@ func ExportRequest(ctx echo.Context) error {
 	message := &ResponseMessage{
 		Result: true,
 		Message: []string{""},
+	}
+	return ctx.JSON(http.StatusOK, message)
+}
+
+func RequestInfo(ctx echo.Context) error {
+	requestID := ctx.QueryParam("id")
+
+	workspace, err := os.Getwd()
+	if e := catchError(ctx, err); e != nil {
+		return e
+	}
+	// Check file path existance
+	filePath := path.Join(workspace, "./resources/processed/", requestID, "query.json")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return catchError(ctx, err)
+	}
+	// Open query option file
+	file, err := os.Open(filePath)
+	if e := catchError(ctx, err); e != nil {
+		return e
+	}
+	defer file.Close()
+
+	// Read option data
+	reader := bufio.NewReader(file)
+	fileInfo, err := file.Stat()
+	if e := catchError(ctx, err); e != nil {
+		return e
+	}
+	buffer := make([]byte, fileInfo.Size())
+	reader.Read(buffer)
+	// Convert data ([]byte -> json)
+	var data map[string]interface{}
+	json.Unmarshal(buffer, &data)
+	
+	// Return
+	message := &ResponseInfo{
+		Result: true,
+		Message: data,
 	}
 	return ctx.JSON(http.StatusOK, message)
 }
