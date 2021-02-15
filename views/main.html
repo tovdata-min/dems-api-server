@@ -48,7 +48,6 @@
         color: #7D928B;
         cursor: pointer;
         font-weight: 700;
-        padding-left: 0.375rem;
       }
       .api-access-state .form-access-state {
         display: flex;
@@ -71,14 +70,28 @@
         color: #CE5DDE;
       }
       .api-info {
+        border-top: 1px dashed rgba(193, 205, 197, 0.45);
         display: block;
         margin-top: 0.45rem;
+        padding: 0.45rem 0 0.25rem 0;
         width: 100%;
       }
+      .conn-info {
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .conn-info-group {
+        margin-bottom: 0.625rem;
+      }
+      .conn-info-group:last-child {
+        margin-bottom: 0;
+      }
       .conn-info-group .info-subject {
+        color:rgba(93, 121, 112, 0.75);
         display: block;
         font-size: 12px;
-        margin-bottom: 4px;
+        margin-bottom: 1px;
+        user-select: none;
       }
       .conn-info-group .info-content {
         display: block;
@@ -172,18 +185,22 @@
                     </div>
                   </div>
                 </div>
-                <div class="api-info" style="display:none;">
-                  <div class="conn-info row">
-                    <div class="conn-info-group col-sm-6 col-lg-4" data-id="host">
-                      <small class="info-subject"></small>
+                <div class="api-info" data-load=false style="display:none;">
+                  <div class="conn-info">
+                    <div class="conn-info-group col-sm-12 col-lg-4" data-id="endpoint">
+                      <small class="info-subject">EndPoint</small>
                       <p class="info-content"></p>
                     </div>
                     <div class="conn-info-group col-sm-6 col-lg-4" data-id="database">
-                      <small class="info-subject"></small>
+                      <small class="info-subject">Database</small>
                       <p class="info-content"></p>
                     </div>
                     <div class="conn-info-group col-sm-6 col-lg-4" data-id="table">
-                      <small class="info-subject"></small>
+                      <small class="info-subject">Table</small>
+                      <p class="info-content"></p>
+                    </div>
+                    <div class="conn-info-group col-12" data-id="syntax">
+                      <small class="info-subject">Query syntax</small>
                       <p class="info-content"></p>
                     </div>
                   </div>
@@ -200,24 +217,38 @@
 
       //
       $(document).on('click', '.api-link', function() {
-        id = $(this).data('id');
-        $.ajax({
-          type: "GET",
-          url: "/request/info",
-          data: `id=${id}`,
-          success: function(res) {
-            if (res.result) {
-              console.log(res.message);
-
-              $formInfo = $(`.api-item[data-id="${id}"] .api-info`)
-              
-
-              $formInfo.slideDown();
-            } else {
-              alert(res.message[0]);
-            }
+        const id = $(this).data('id');
+        const $formInfo = $(`.api-item[data-id="${id}"] .api-info`);
+        // Check active status
+        if ($formInfo.hasClass("active")) {
+          $formInfo.removeClass("active");
+          $formInfo.slideUp();
+        } else {
+          // Check load data
+          if (!$formInfo.data("load")) {
+            $.ajax({
+              type: "GET",
+              url: "/request/info",
+              data: `id=${id}`,
+              success: function(res) {
+                if (res.result) {
+                  // Set content
+                  for (const key of Object.keys(res.message)) {
+                    $formInfo.find(`.conn-info-group[data-id="${key}"] .info-content`).text(res.message[key])
+                  }
+                  // Set load data status
+                  $formInfo.data("load", true)
+                  $formInfo.slideDown();
+                } else {
+                  alert(res.message[0]);
+                }
+              }
+            });
+          } else {
+            $formInfo.slideDown();
           }
-        });
+          $formInfo.addClass("active");
+        }
       });
     </script>
   </body>

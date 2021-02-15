@@ -43,13 +43,8 @@ func CreateConnection_old(host string, port string, user string, pwd string) (*s
 
 /* [Function] Create db object (using connector) */
 func CreateConnection(requestID string) (*sql.DB, error) {
-	// 요청된 requestID에 대한 반출 조회
-	optionfilePath, err := checkFileExistance(requestID, "query.json")
-	if err != nil {
-		return nil, err
-	}
 	// 데이터베이스 연결 정보 및 반출 처리 옵션 읽어오기
-	options, err := getOptionFile(optionfilePath)
+	options, err := GetOptions(requestID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,18 +96,7 @@ func ExecuteQuery(db *sql.DB, syntax string, blockSize uint64, nProc uint64, dat
 }
 
 /* [Function] Create query syntax (dMES 전용) */
-func CreateQuerySyntax(requestID string) (string, error) {
-	// 요청된 requestID에 대한 반출 조회
-	optionfilePath, err := checkFileExistance(requestID, "query.json")
-	if err != nil {
-		return "", err
-	}
-	// 데이터베이스 연결 정보 및 반출 처리 옵션 읽어오기
-	options, err := getOptionFile(optionfilePath)
-	if err != nil {
-		return "", err
-	}
-	
+func CreateQuerySyntax(options map[string]interface{}) (string, error) {
 	// 쿼리문 생성을 위한 데이터베이스 및 테이블, 속성 정보 추출
 	conn := options["conn"].(map[string]interface{})
 	attributes := options["attributes"].(map[string]interface{})
@@ -290,9 +274,14 @@ func checkFileExistance(requestID string, filename string) (string, error) {
 }
 
 /* [Internal function] Get file */
-func getOptionFile(filePath string) (map[string]interface{}, error) {
+func GetOptions(requestID string) (map[string]interface{}, error) {
+	// 요청된 requestID에 대한 반출 조회
+	optionfilePath, err := checkFileExistance(requestID, "query.json")
+	if err != nil {
+		return nil, err
+	}
 	// 파일 열기
-	file, err := os.Open(filePath)
+	file, err := os.Open(optionfilePath)
 	if err != nil {
 		return nil, err
 	}

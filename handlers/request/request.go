@@ -1,4 +1,4 @@
-package handlers
+package request
 
 import (
 	"bufio"
@@ -27,16 +27,16 @@ const (
 
 // Response structrue
 type ResponseMessage struct {
-	Result bool `json:"result" xml:"result"`
-	Message []string `json:"message" xml:"message"`
+	Result 	bool 			`json:"result" xml:"result"`
+	Message []string 	`json:"message" xml:"message"`
 }
 type ResponseList struct {
-	Result bool `json:"result" xml:"result"`
+	Result 	bool												`json:"result" xml:"result"`
 	Message map[string](map[string]int) `json:"message" xml:"message"`
 }
-type ResponseInfo struct {
-	Result bool `json:"result" xml:"result"`
-	Message map[string]interface{} `json:"message" xml:"message"`
+type ResponseRequestInfo struct {
+	Result 	bool							`json:"result" xml:"result"`
+	Message map[string]string	`json:"message" xml:"message"`
 }
 // Database interface
 type ConnectionDB struct {
@@ -135,8 +135,13 @@ func ExportRequest(ctx echo.Context) error {
 	// Set block size
 	conn.blockSize = 100000
 
+	// Get options
+	options, err := hdb.GetOptions(requestID)
+	if e := catchError(ctx, err); e != nil {
+		return e
+	}
 	// Create query syntax
-	conn.syntax, err = hdb.CreateQuerySyntax(requestID)
+	conn.syntax, err = hdb.CreateQuerySyntax(options)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
@@ -205,45 +210,47 @@ func ExportRequest(ctx echo.Context) error {
 		Result: true,
 		Message: []string{""},
 	}
+	conn = nil
 	return ctx.JSON(http.StatusOK, message)
 }
 
 func RequestInfo(ctx echo.Context) error {
 	requestID := ctx.QueryParam("id")
-
-	workspace, err := os.Getwd()
-	if e := catchError(ctx, err); e != nil {
-		return e
-	}
 	// Check file path existance
-	filePath := path.Join(workspace, "./resources/processed/", requestID, "query.json")
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return catchError(ctx, err)
-	}
-	// Open query option file
-	file, err := os.Open(filePath)
+	options, err := hdb.GetOptions(requestID)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
-	defer file.Close()
-
-	// Read option data
-	reader := bufio.NewReader(file)
-	fileInfo, err := file.Stat()
+	// Create query syntax
+	syntax, err := hdb.CreateQuerySyntax(options)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
-	buffer := make([]byte, fileInfo.Size())
-	reader.Read(buffer)
-	// Convert data ([]byte -> json)
-	var data map[string]interface{}
-	json.Unmarshal(buffer, &data)
 	
-	// Return
-	message := &ResponseInfo{
+	// Create info object (string)
+	rawConn := options["conn"].(map[string]interface{})
+	var buffer bytes.Buffer
+	buffer.WriteString(`{"endpoint":"`)
+	buffer.WriteString(rawConn["host"].(string))
+	buffer.WriteString(`:`)
+	buffer.WriteString(rawConn["port"].(string))
+	buffer.WriteString(`","database":"`)
+	buffer.WriteString(rawConn["database"].(string))
+	buffer.WriteString(`","table":"`)
+	buffer.WriteString(rawConn["table"].(string))
+	buffer.WriteString(`","syntax":"`)
+	buffer.WriteString(syntax)
+	buffer.WriteString(`"}`)
+	strConn := buffer.String()
+	// Convert json
+	var connInfo map[string]string
+	json.Unmarshal([]byte(strConn), &connInfo)
+	// Create response message
+	message := &ResponseRequestInfo{
 		Result: true,
-		Message: data,
+		Message: connInfo,
 	}
+
 	return ctx.JSON(http.StatusOK, message)
 }
 
