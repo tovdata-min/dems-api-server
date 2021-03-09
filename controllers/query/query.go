@@ -72,7 +72,7 @@ func CreateConnection(requestID string) (*sql.DB, error) {
 }
 
 /* [Function] Query */
-func ExecuteQuery(db *sql.DB, syntax string, blockSize uint64, nProc uint64, dataQueue chan<- []string, nProcQuery chan<- bool) (bool, error) {
+func ExecuteQuery(db *sql.DB, syntax string, params []interface{}, blockSize uint64, nProc uint64, dataQueue chan<- []string, nProcQuery chan<- bool) (bool, error) {
 	// 멀티 프로세싱을 위해 Max proc 값 설정
 	runtime.GOMAXPROCS(runtime.NumCPU() * 4)
 
@@ -89,14 +89,14 @@ func ExecuteQuery(db *sql.DB, syntax string, blockSize uint64, nProc uint64, dat
 
 	// 쿼리 수행 (병렬 처리)
 	for i := uint64(0); i < nProc; i++ {
-		go parallelProcess(stmt, dataQueue, nProcQuery, blockSize, (i * blockSize))
+		go parallelProcess(stmt, params, dataQueue, nProcQuery, blockSize, (i * blockSize))
 	}
 
 	return true, nil
 }
 
 /* [Function] Create query syntax (dMES 전용) */
-func CreateQuerySyntax(options map[string]interface{}, params []string) (string, error) {
+func CreateQuerySyntax(options map[string]interface{}) (string, error) {
 	// 쿼리문 생성을 위한 데이터베이스 및 테이블, 속성 정보 추출
 	conn := options["conn"].(map[string]interface{})
 	attributes := options["attributes"].(map[string]interface{})
@@ -125,7 +125,7 @@ func CreateQuerySyntax(options map[string]interface{}, params []string) (string,
 		}
 	}
 	// 사용자 지정 조건 생성
-	var paramsIndex = 0
+	// var paramsIndex = 0
 	conditionSyntax := ""
 	for idx, elem := range conditions {
 		condition := elem.(map[string]interface{})
@@ -137,12 +137,13 @@ func CreateQuerySyntax(options map[string]interface{}, params []string) (string,
 		// Fixed 여부
 		value := condition["value"].(string)
 		if !condition["fixed"].(bool) {
-			if params == nil {
-				value = "?"
-			} else {
-				value = params[paramsIndex]
-				paramsIndex++
-			}
+			value = "?"
+			// if params == nil {
+			// 	value = "?"
+			// } else {
+			// 	value = params[paramsIndex]
+			// 	paramsIndex++
+			// }
 		}
 		// Create condition syntax
 		if operator == "=" || operator == "!=" {
@@ -194,9 +195,11 @@ func CreateQuerySyntax(options map[string]interface{}, params []string) (string,
 		buffer.WriteString(" WHERE ")
 		if joinSyntax != "" {
 			buffer.WriteString(joinSyntax)
-			buffer.WriteString(" AND")
 		}
 		if conditionSyntax != "" {
+			if joinSyntax != "" {
+				buffer.WriteString(" AND")
+			}
 			buffer.WriteString(conditionSyntax)
 		}
 	}
@@ -276,9 +279,12 @@ func parallelProcessC(stmt *sql.Stmt, dataQueue chan<- []string, nProcQuery chan
 }
 
 /* [Internal function] 병렬 쿼리 (변환 처리 포함) */
-func parallelProcess(stmt *sql.Stmt, dataQueue chan<- []string, nProcQuery chan<- bool, blockSize uint64, offset uint64) {
+func parallelProcess(stmt *sql.Stmt, params []interface{}, dataQueue chan<- []string, nProcQuery chan<- bool, blockSize uint64, offset uint64) {
+	// Params 에 offset, limit options 추가
+	params = append(params, blockSize)
+	params = append(params, offset)
 	// Query
-	rows, err := stmt.Query(blockSize, offset)
+	rows, err := stmt.Query(params...)
 	catchError(err)
 
 	// Get column types
@@ -355,7 +361,7 @@ func GetOptions(requestID string) (map[string]interface{}, error) {
 }
 
 /* [Function] Get queryed result total data size */
-func GetDataSize(db *sql.DB, query string) (uint64, error) {
+func GetDataSize(db *sql.DB, query string, params []interface{}) (uint64, error) {
 	log.Print(query)
 	log.Print("")
 	// Search index for modify query
@@ -366,7 +372,7 @@ func GetDataSize(db *sql.DB, query string) (uint64, error) {
 	buf.WriteString(query[subsequentIndex:])
 	modifiedQuery := buf.String()
 	// Execute query using modified query syntax
-	row := db.QueryRow(modifiedQuery)
+	row := db.QueryRow(modifiedQuery, params...)
 	// Get query result
 	var rawResult string
 	row.Scan(&rawResult)
@@ -378,13 +384,13 @@ func GetDataSize(db *sql.DB, query string) (uint64, error) {
 	return uint64(result), nil
 }
 
-func GetDataColumns(db *sql.DB, query string) ([]string, error) {
+func GetDataColumns(db *sql.DB, query string, params []interface{}) ([]string, error) {
 	var buf bytes.Buffer
 	buf.WriteString(query)
-	buf.WriteString(" LIMIT 1")
+	buf.WriteString("LIMIT 1")
 	modifiedQuery := buf.String()
 
-	rows, err := db.Query(modifiedQuery)
+	rows, err := db.Query(modifiedQuery, params...)
 	if err != nil {
 		return nil, err
 	}

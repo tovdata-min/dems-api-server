@@ -146,7 +146,7 @@ func ExportRequest(ctx echo.Context) error {
 
 	// Parameter 개수 파악 및 데이터 추출
 	var requiredParameterCount = 0
-	var params []string
+	var params []interface{}
 	conditions := options["conditions"].([]interface{})
 	for _, value := range conditions {
 		condition := value.(map[string]interface{})
@@ -166,12 +166,12 @@ func ExportRequest(ctx echo.Context) error {
 	}
 
 	// Create query syntax
-	conn.syntax, err = hdb.CreateQuerySyntax(options, params)
+	conn.syntax, err = hdb.CreateQuerySyntax(options)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
 	// Outputs the total number of query result
-	conn.totalSize, err = hdb.GetDataSize(conn.db, conn.syntax)
+	conn.totalSize, err = hdb.GetDataSize(conn.db, conn.syntax, params)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
@@ -184,7 +184,7 @@ func ExportRequest(ctx echo.Context) error {
 	}
 
 	// Create header to used in csv file
-	header, err := hdb.GetDataColumns(conn.db, conn.syntax)
+	header, err := hdb.GetDataColumns(conn.db, conn.syntax, params)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
@@ -198,7 +198,7 @@ func ExportRequest(ctx echo.Context) error {
 	quitProc := make(chan bool)
 
 	// Excute query
-	_, err = hdb.ExecuteQuery(conn.db, conn.syntax, conn.blockSize, nProc, rawDataQueue, nProcQuery)
+	_, err = hdb.ExecuteQuery(conn.db, conn.syntax, params, conn.blockSize, nProc, rawDataQueue, nProcQuery)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
@@ -247,7 +247,7 @@ func RequestInfo(ctx echo.Context) error {
 		return e
 	}
 	// Create query syntax
-	syntax, err := hdb.CreateQuerySyntax(options, nil)
+	syntax, err := hdb.CreateQuerySyntax(options)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
