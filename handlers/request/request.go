@@ -5,17 +5,19 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 	"time"
+
 	// Echo
 	echo "github.com/labstack/echo"
 	// Custom package
-	hdb "dems-api-server/controllers/query"
 	anony "dems-api-server/controllers/anonymous"
+	hdb "dems-api-server/controllers/query"
 )
 
 const (
@@ -27,20 +29,21 @@ const (
 
 // Response structrue
 type ResponseMessage struct {
-	Result 	bool 			`json:"result" xml:"result"`
-	Message []string 	`json:"message" xml:"message"`
+	Result  bool     `json:"result" xml:"result"`
+	Message []string `json:"message" xml:"message"`
 }
 type ResponseList struct {
-	Result 	bool												`json:"result" xml:"result"`
+	Result  bool                        `json:"result" xml:"result"`
 	Message map[string](map[string]int) `json:"message" xml:"message"`
 }
 type ResponseRequestInfo struct {
-	Result 	bool							`json:"result" xml:"result"`
-	Message map[string]string	`json:"message" xml:"message"`
+	Result  bool              `json:"result" xml:"result"`
+	Message map[string]string `json:"message" xml:"message"`
 }
+
 // Database interface
 type ConnectionDB struct {
-	db *sql.DB
+	db     *sql.DB
 	syntax string
 	// Data size
 	totalSize uint64
@@ -59,7 +62,7 @@ func RequestList(ctx echo.Context) error {
 		printLog("error", err.Error())
 		// Create directory with optional files
 		err := os.MkdirAll(dirPath, 0644)
-		if e:= catchError(ctx, err); e != nil {
+		if e := catchError(ctx, err); e != nil {
 			return e
 		}
 	}
@@ -78,10 +81,10 @@ func RequestList(ctx echo.Context) error {
 	// Create obj to output
 	accessObj := make(map[string](map[string]int), len(info))
 	for _, file := range info {
-		accessObj[file.Name()] = map[string]int {
+		accessObj[file.Name()] = map[string]int{
 			"attempt": 0,
 			"success": 0,
-			"failed": 0,
+			"failed":  0,
 		}
 	}
 	// Lookup log file to know export history
@@ -104,18 +107,18 @@ func RequestList(ctx echo.Context) error {
 
 		split := strings.Split(string(line), " ")
 		switch split[1] {
-			case "[Attempt]":
-				accessObj[split[2]]["attempt"] += 1
-			case "[Success]":
-				accessObj[split[2]]["success"] += 1
-			case "[Failed]":
-				accessObj[split[2]]["failed"] += 1
+		case "[Attempt]":
+			accessObj[split[2]]["attempt"] += 1
+		case "[Success]":
+			accessObj[split[2]]["success"] += 1
+		case "[Failed]":
+			accessObj[split[2]]["failed"] += 1
 		}
 	}
 
 	// Create response format
 	message := &ResponseList{
-		Result: true,
+		Result:  true,
 		Message: accessObj,
 	}
 	// Return
@@ -140,8 +143,30 @@ func ExportRequest(ctx echo.Context) error {
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
+
+	// Parameter 개수 파악 및 데이터 추출
+	var requiredParameterCount = 0
+	var params []string
+	conditions := options["conditions"].([]interface{})
+	for _, value := range conditions {
+		condition := value.(map[string]interface{})
+		if !condition["fixed"].(bool) {
+			requiredParameterCount++
+			// Get param
+			attribute := condition["attribute"].(string)
+			if param := ctx.QueryParam(attribute); param != "" {
+				params = append(params, param)
+			}
+
+		}
+	}
+	if requiredParameterCount != len(params) {
+		err := errors.New("Necessary parameters do not match.")
+		return catchError(ctx, err)
+	}
+
 	// Create query syntax
-	conn.syntax, err = hdb.CreateQuerySyntax(options)
+	conn.syntax, err = hdb.CreateQuerySyntax(options, params)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
@@ -150,14 +175,14 @@ func ExportRequest(ctx echo.Context) error {
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
-	writeLog("access", "[Attempt] " + requestID)
+	writeLog("access", "[Attempt] "+requestID)
 
 	// Calculate the number of split queries basesd on the specified blocksize
 	nProc := conn.totalSize / conn.blockSize
-	if conn.totalSize % conn.blockSize > 0 {
+	if conn.totalSize%conn.blockSize > 0 {
 		nProc += 1
 	}
-	
+
 	// Create header to used in csv file
 	header, err := hdb.GetDataColumns(conn.db, conn.syntax)
 	if e := catchError(ctx, err); e != nil {
@@ -165,8 +190,8 @@ func ExportRequest(ctx echo.Context) error {
 	}
 
 	// Create channel(queue)
-	rawDataQueue := make(chan []string, DU_MB * 256)
-	pcdDataQueue := make(chan []string, DU_MB * 256)
+	rawDataQueue := make(chan []string, DU_MB*256)
+	pcdDataQueue := make(chan []string, DU_MB*256)
 	nProcQuery := make(chan bool, int(nProc))
 	nProcAnony := make(chan bool, int(nProc))
 	// stateQuery := make(chan bool)
@@ -185,29 +210,29 @@ func ExportRequest(ctx echo.Context) error {
 	// 채널에 데이터 유무 확인 후, 채널 종료 처리 및 루프 종료 처리
 	completedQuery := 0
 	completedAnony := 0
-	ProcLoop:
+ProcLoop:
 	for {
 		select {
-			case <-nProcQuery:
-				completedQuery++
-				if uint64(completedQuery) >= nProc {
-					close(rawDataQueue)
-				}
-			case <-nProcAnony:
-				completedAnony++
-				if uint64(completedAnony) >= nProc {
-					close(pcdDataQueue)
-				}
-			case <-quitProc:
-				break ProcLoop
+		case <-nProcQuery:
+			completedQuery++
+			if uint64(completedQuery) >= nProc {
+				close(rawDataQueue)
+			}
+		case <-nProcAnony:
+			completedAnony++
+			if uint64(completedAnony) >= nProc {
+				close(pcdDataQueue)
+			}
+		case <-quitProc:
+			break ProcLoop
 		}
 	}
-	
+
 	printLog("debug", "Exported data")
-	writeLog("access", "[Success] " + requestID)
+	writeLog("access", "[Success] "+requestID)
 
 	message := &ResponseMessage{
-		Result: true,
+		Result:  true,
 		Message: []string{""},
 	}
 	conn = nil
@@ -222,11 +247,11 @@ func RequestInfo(ctx echo.Context) error {
 		return e
 	}
 	// Create query syntax
-	syntax, err := hdb.CreateQuerySyntax(options)
+	syntax, err := hdb.CreateQuerySyntax(options, nil)
 	if e := catchError(ctx, err); e != nil {
 		return e
 	}
-	
+
 	// Create info object (string)
 	rawConn := options["conn"].(map[string]interface{})
 	var buffer bytes.Buffer
@@ -247,7 +272,7 @@ func RequestInfo(ctx echo.Context) error {
 	json.Unmarshal([]byte(strConn), &connInfo)
 	// Create response message
 	message := &ResponseRequestInfo{
-		Result: true,
+		Result:  true,
 		Message: connInfo,
 	}
 
@@ -259,7 +284,7 @@ func catchError(ctx echo.Context, err error) error {
 	if err != nil {
 		// Create response format
 		message := &ResponseMessage{
-			Result: false,
+			Result:  false,
 			Message: []string{err.Error()},
 		}
 		// Return
@@ -274,14 +299,14 @@ func printLog(pType string, message string) {
 	// Create message
 	var buffer bytes.Buffer
 	switch pType {
-		case "error":
-			buffer.WriteString("\u001B[31m[ERROR] ")
-		case "warning":
-			buffer.WriteString("\u001B[33m[WARNING] ")
-		case "success":
-			buffer.WriteString("\u001B[32m[SUCCESS] ")
-		case "debug":
-			buffer.WriteString("\u001B[35m[DEBUG] ")
+	case "error":
+		buffer.WriteString("\u001B[31m[ERROR] ")
+	case "warning":
+		buffer.WriteString("\u001B[33m[WARNING] ")
+	case "success":
+		buffer.WriteString("\u001B[32m[SUCCESS] ")
+	case "debug":
+		buffer.WriteString("\u001B[35m[DEBUG] ")
 	}
 	buffer.WriteString(message)
 	buffer.WriteString("\u001B[0m")
@@ -297,7 +322,7 @@ func writeLog(logType string, message string) {
 		printLog("error", err.Error())
 		return
 	}
-	
+
 	dirPath := path.Join(workspace, "./resources/logs")
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 		err := os.MkdirAll(dirPath, 0644)

@@ -96,38 +96,84 @@ func ExecuteQuery(db *sql.DB, syntax string, blockSize uint64, nProc uint64, dat
 }
 
 /* [Function] Create query syntax (dMES 전용) */
-func CreateQuerySyntax(options map[string]interface{}) (string, error) {
+func CreateQuerySyntax(options map[string]interface{}, params []string) (string, error) {
 	// 쿼리문 생성을 위한 데이터베이스 및 테이블, 속성 정보 추출
 	conn := options["conn"].(map[string]interface{})
 	attributes := options["attributes"].(map[string]interface{})
+	conditions := options["conditions"].([]interface{})
+
 	// 기본 데이터베이스 정보와 동의 내역 데이터베이스 정보
 	baseTable := conn["database"].(string) + "." + conn["table"].(string)
 	consentTable := ""
 	// 반출할 속성 추출 및 조건 구문 생성
 	attributesToExtract := make([]string, 0)
-	conditionQuery := ""
+	joinSyntax := ""
 	// 반출할 필드들과 쿼리 조건 생성
 	for key, value := range attributes {
 		detail := value.(map[string]interface{})
 		// Verify export check
 		if detail["isExport"].(bool) {
-			attributesToExtract = append(attributesToExtract, baseTable + "." + key)
+			attributesToExtract = append(attributesToExtract, baseTable+"."+key)
 			// Check consent skip
 			if detail["isPii"].(bool) && !detail["isConsentSkip"].(bool) {
 				consentTable = detail["consentDatabase"].(string) + "." + detail["consentTable"].(string)
-				if conditionQuery != "" {
-					conditionQuery += " AND "
+				if joinSyntax != "" {
+					joinSyntax += " AND "
 				}
-				conditionQuery += consentTable + "." + key + "=1 AND ADD_MONTHS(TO_DATE(" + baseTable + ".LAST_ACCESSED), " + strconv.FormatFloat(detail["legalDuration"].(float64), 'f', 0, 64) + ") > NOW()"
+				joinSyntax += consentTable + "." + key + "=1 AND ADD_MONTHS(TO_DATE(" + baseTable + ".LAST_ACCESSED), " + strconv.FormatFloat(detail["legalDuration"].(float64), 'f', 0, 64) + ") > NOW()"
 			}
 		}
 	}
+	// 사용자 지정 조건 생성
+	var paramsIndex = 0
+	conditionSyntax := ""
+	for idx, elem := range conditions {
+		condition := elem.(map[string]interface{})
+
+		operator := condition["operator"].(string)
+		if idx > 0 {
+			conditionSyntax += " " + condition["connection"].(string)
+		}
+		// Fixed 여부
+		value := condition["value"].(string)
+		if !condition["fixed"].(bool) {
+			if params == nil {
+				value = "?"
+			} else {
+				value = params[paramsIndex]
+				paramsIndex++
+			}
+		}
+		// Create condition syntax
+		if operator == "=" || operator == "!=" {
+			if value == "?" {
+				conditionSyntax += " " + baseTable + "." + condition["attribute"].(string) + " " + operator + " ?"
+			} else if _, err := strconv.ParseFloat(condition["value"].(string), 64); err == nil {
+				conditionSyntax += " " + baseTable + "." + condition["attribute"].(string) + " " + operator + " " + value
+			} else {
+				conditionSyntax += " " + baseTable + "." + condition["attribute"].(string) + " " + operator + " '" + value + "'"
+			}
+		} else if operator == "like" || operator == "not like" {
+			if value == "?" {
+				conditionSyntax += " " + baseTable + "." + condition["attribute"].(string) + " " + operator + " '%?%'"
+			} else {
+				conditionSyntax += " " + baseTable + "." + condition["attribute"].(string) + " " + operator + " '%" + value + "%'"
+			}
+		} else {
+			if value == "?" {
+				conditionSyntax += " " + baseTable + "." + condition["attribute"].(string) + " " + operator + " ?"
+			} else {
+				conditionSyntax += " " + baseTable + "." + condition["attribute"].(string) + " " + operator + " " + value
+			}
+		}
+	}
+
 	// 추출된 정보들을 이용하여 쿼리 생성
 	var buffer bytes.Buffer
 	buffer.WriteString("SELECT ")
 	for i := range attributesToExtract {
 		buffer.WriteString(attributesToExtract[i])
-		if i < len(attributesToExtract) - 1 {
+		if i < len(attributesToExtract)-1 {
 			buffer.WriteString(", ")
 		}
 	}
@@ -144,9 +190,15 @@ func CreateQuerySyntax(options map[string]interface{}) (string, error) {
 		buffer.WriteString(".PROFILES_ID")
 	}
 	// Condition
-	if conditionQuery != "" {
+	if joinSyntax != "" || conditionSyntax != "" {
 		buffer.WriteString(" WHERE ")
-		buffer.WriteString(conditionQuery)
+		if joinSyntax != "" {
+			buffer.WriteString(joinSyntax)
+			buffer.WriteString(" AND")
+		}
+		if conditionSyntax != "" {
+			buffer.WriteString(conditionSyntax)
+		}
 	}
 	return buffer.String(), nil
 }
@@ -162,25 +214,25 @@ func parallelProcessC(stmt *sql.Stmt, dataQueue chan<- []string, nProcQuery chan
 	catchError(err)
 	// Create interface array to convert type
 	columns := make([]interface{}, len(cTypes))
-	for i := range(columns) {
+	for i := range columns {
 		switch cTypes[i].ScanType().String() {
-			case "int", "int8", "int16", "int32", "int64":
-				columns[i] = new(int64)
-			case "uint", "uint8", "uint16", "uint32", "uint64":
-				columns[i] = new(uint64)
-			case "float32", "float64":
-				columns[i] = new(float64)
-			case "bool":
-				columns[i] = new(bool)
-			case "driver.Decimal":
-				columns[i] = new(driver.Decimal)
-			case "string":
-				columns[i] = new(string)
-			case "time.Time":
-				columns[i] = new(time.Time)
-			default:
-				log.Println("New type:", cTypes[i].ScanType().String())
-				columns[i] = new(interface{})
+		case "int", "int8", "int16", "int32", "int64":
+			columns[i] = new(int64)
+		case "uint", "uint8", "uint16", "uint32", "uint64":
+			columns[i] = new(uint64)
+		case "float32", "float64":
+			columns[i] = new(float64)
+		case "bool":
+			columns[i] = new(bool)
+		case "driver.Decimal":
+			columns[i] = new(driver.Decimal)
+		case "string":
+			columns[i] = new(string)
+		case "time.Time":
+			columns[i] = new(time.Time)
+		default:
+			log.Println("New type:", cTypes[i].ScanType().String())
+			columns[i] = new(interface{})
 		}
 	}
 	// Get row data
@@ -189,24 +241,24 @@ func parallelProcessC(stmt *sql.Stmt, dataQueue chan<- []string, nProcQuery chan
 		rows.Scan(columns...)
 		// Convert
 		converted := make([]string, len(columns))
-		for i := range(columns) {
+		for i := range columns {
 			switch cTypes[i].ScanType().String() {
-				case "int", "int8", "int16", "int32", "int64":
-					converted[i] = strconv.FormatInt(*columns[i].(*int64), 10)
-				case "uint", "uint8", "uint16", "uint32", "uint64":
-					converted[i] = strconv.FormatUint(*columns[i].(*uint64), 10)
-				case "float32", "float64":
-					converted[i] = strconv.FormatFloat(*columns[i].(*float64), 'f', -6, 64)
-				case "bool":
-					converted[i] = strconv.FormatBool(*columns[i].(*bool))
-				case "driver.Decimal":
-					converted[i] = big.NewFloat(0).SetRat((*big.Rat)(columns[i].(*driver.Decimal))).String()
-				case "string":
-					converted[i] = *columns[i].(*string)
-				case "time.Time":
-					converted[i] = (columns[i].(*time.Time).Format("2006-01-02T15:04:05"))
-				default:
-					converted[i] = "*"
+			case "int", "int8", "int16", "int32", "int64":
+				converted[i] = strconv.FormatInt(*columns[i].(*int64), 10)
+			case "uint", "uint8", "uint16", "uint32", "uint64":
+				converted[i] = strconv.FormatUint(*columns[i].(*uint64), 10)
+			case "float32", "float64":
+				converted[i] = strconv.FormatFloat(*columns[i].(*float64), 'f', -6, 64)
+			case "bool":
+				converted[i] = strconv.FormatBool(*columns[i].(*bool))
+			case "driver.Decimal":
+				converted[i] = big.NewFloat(0).SetRat((*big.Rat)(columns[i].(*driver.Decimal))).String()
+			case "string":
+				converted[i] = *columns[i].(*string)
+			case "time.Time":
+				converted[i] = (columns[i].(*time.Time).Format("2006-01-02T15:04:05"))
+			default:
+				converted[i] = "*"
 			}
 		}
 		// Send data in queue(channel)
@@ -247,7 +299,7 @@ func parallelProcess(stmt *sql.Stmt, dataQueue chan<- []string, nProcQuery chan<
 		cnt++
 	}
 
-	printLog("debug", "Routine(Query) exit (DataCount:" + strconv.Itoa(cnt) + ")")
+	printLog("debug", "Routine(Query) exit (DataCount:"+strconv.Itoa(cnt)+")")
 	// Return query and convert result
 	if err := rows.Err(); err != nil {
 		printLog("error", err.Error())
@@ -304,8 +356,10 @@ func GetOptions(requestID string) (map[string]interface{}, error) {
 
 /* [Function] Get queryed result total data size */
 func GetDataSize(db *sql.DB, query string) (uint64, error) {
+	log.Print(query)
+	log.Print("")
 	// Search index for modify query
-	subsequentIndex := strings.Index(query, "FROM") + 4;
+	subsequentIndex := strings.Index(query, "FROM") + 4
 	// Combine strings (add count syntax)
 	var buf bytes.Buffer
 	buf.WriteString("SELECT COUNT(*) FROM")
@@ -327,7 +381,7 @@ func GetDataSize(db *sql.DB, query string) (uint64, error) {
 func GetDataColumns(db *sql.DB, query string) ([]string, error) {
 	var buf bytes.Buffer
 	buf.WriteString(query)
-	buf.WriteString("LIMIT 1")
+	buf.WriteString(" LIMIT 1")
 	modifiedQuery := buf.String()
 
 	rows, err := db.Query(modifiedQuery)
@@ -338,7 +392,7 @@ func GetDataColumns(db *sql.DB, query string) ([]string, error) {
 	headerInfo, err := rows.Columns()
 	if err != nil {
 		return nil, err
-	}	else {
+	} else {
 		return headerInfo, nil
 	}
 }
@@ -348,27 +402,26 @@ func printLog(logType string, message string) {
 	var buf bytes.Buffer
 	// matching by type
 	switch logType {
-		case "notice":	// Color is GREEN
-			buf.WriteString("\x1b[32m[NOTICE] ")
-			buf.WriteString(message)
-			buf.WriteString("\x1b[0m")
-		case "debug":			// Color is MAGENTA
-			buf.WriteString("\x1b[35m[DEBUG] ")
-			buf.WriteString(message)
-			buf.WriteString("\x1b[0m")
-		case "error":		// Color is RED
-			buf.WriteString("\x1b[31m[ERROR] ")
-			buf.WriteString(message)
-			buf.WriteString("\x1b[0m")
-		default:				// Color is DEFAULT (WHITE)
-			buf.WriteString("\x1b[0m[ERROR] ")
-			buf.WriteString(message)
-			buf.WriteString("\x1b[0m")
+	case "notice": // Color is GREEN
+		buf.WriteString("\x1b[32m[NOTICE] ")
+		buf.WriteString(message)
+		buf.WriteString("\x1b[0m")
+	case "debug": // Color is MAGENTA
+		buf.WriteString("\x1b[35m[DEBUG] ")
+		buf.WriteString(message)
+		buf.WriteString("\x1b[0m")
+	case "error": // Color is RED
+		buf.WriteString("\x1b[31m[ERROR] ")
+		buf.WriteString(message)
+		buf.WriteString("\x1b[0m")
+	default: // Color is DEFAULT (WHITE)
+		buf.WriteString("\x1b[0m[ERROR] ")
+		buf.WriteString(message)
+		buf.WriteString("\x1b[0m")
 	}
 	// Print
 	log.Print(buf.String())
 }
-
 
 /* [Internal function] Catch error */
 func catchError(err interface{}) {
@@ -391,7 +444,7 @@ func catchError(err interface{}) {
 // 	// if remainSize := totalDataSize % blockSize; remainSize > 0 {
 // 	// 	nQueryProc += 1
 // 	// }
-	
+
 // 	// Set process count
 // 	runtime.GOMAXPROCS(runtime.NumCPU() * 4)
 
